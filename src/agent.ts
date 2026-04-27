@@ -53,9 +53,15 @@ async function getTodayStats(): Promise<any[]> {
 async function checkNewSales(): Promise<void> {
     try {
         const orders = await getNewOrders();
-        const newOrders = orders.filter((o: any) => !seenOrders.has(o.gNumber));
-        for (const order of newOrders) {
-            seenOrders.add(order.gNumber);
+        console.log("Orders found:", orders.length);
+        console.log("Orders data:", JSON.stringify(orders.slice(0, 2)));
+
+        for (const order of orders) {
+            const orderId = order.gNumber?.toString() || order.srid?.toString();
+            console.log("Order ID:", orderId, "Seen:", seenOrders.has(orderId || ""));
+
+            if (!orderId || seenOrders.has(orderId)) continue;
+            seenOrders.add(orderId);
             const msg =
                 `🛍 *NEW SALE!*\n` +
                 `📦 ${order.subject || "Товар"}\n` +
@@ -63,7 +69,6 @@ async function checkNewSales(): Promise<void> {
                 `📍 ${order.warehouseName || "Склад WB"}\n` +
                 `🏙 ${order.regionName || ""}\n` +
                 `⏰ ${new Date().toLocaleTimeString("ru-RU")}`;
-            // Only send to ADMIN
             await bot.sendMessage(ADMIN_ID, msg, { parse_mode: "Markdown" });
         }
     } catch (e) {
