@@ -8,4 +8,8 @@ yarn-error.log*
 /.pnp
 .pnp.js
 
+echo .env > .gitignore
+echo node_modules/ >> .gitignore
+echo dist/ >> .gitignore
+
 .vscode/*
