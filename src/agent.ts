@@ -71,11 +71,12 @@ async function checkNewSales(): Promise<void> {
     }
 }
 
-export async function sendDailySummary(): Promise<void> {
+export async function sendDailySummary(chatId?: string): Promise<void> {
+    const target = chatId || ADMIN_ID;
     try {
         const sales = await getTodayStats();
         if (!sales || sales.length === 0) {
-            await bot.sendMessage(ADMIN_ID, "📊 *Daily Summary*\n\nNo sales today yet.", { parse_mode: "Markdown" });
+            await bot.sendMessage(target, "📊 *Daily Summary*\n\nNo sales today yet.", { parse_mode: "Markdown" });
             return;
         }
         const totalRevenue = sales.reduce((sum: number, s: any) => sum + (s.priceWithDisc || 0), 0);
@@ -87,8 +88,12 @@ export async function sendDailySummary(): Promise<void> {
             `🛍 Sales today: *${totalSales}*\n` +
             `💰 Revenue: *${Math.round(totalRevenue).toLocaleString()} руб*\n` +
             `📈 Avg price: *${avgPrice} руб*`;
-        // Only send to ADMIN
-        await bot.sendMessage(ADMIN_ID, msg, { parse_mode: "Markdown" });
+        // Only admin sees real sales data
+        if (target === ADMIN_ID) {
+            await bot.sendMessage(ADMIN_ID, msg, { parse_mode: "Markdown" });
+        } else {
+            await bot.sendMessage(target, "⛔ Sales data is private.", { parse_mode: "Markdown" });
+        }
     } catch (e) {
         console.error("Error sending summary:", e);
     }
@@ -109,33 +114,37 @@ const RESEARCH_PROMPTS = {
     trends: `You are a marketplace analyst. Top trending categories on Wildberries April 2026? Focus on growing demand, low saturation, women 25-45, home/kitchen/beauty. Give 5 trends with reasoning.`,
 };
 
-export async function runProductResearch(): Promise<void> {
-    await sendTelegram("🔍 Researching new products...");
+export async function runProductResearch(chatId?: string): Promise<void> {
+    const target = chatId || CHAT_ID;
+    await bot.sendMessage(target, "🔍 Researching new products...", { parse_mode: "Markdown" });
     const result = await askClaude(RESEARCH_PROMPTS.products);
-    await sendTelegram(`📦 *NEW PRODUCT OPPORTUNITIES*\n\n${result}`);
+    await bot.sendMessage(target, `📦 *NEW PRODUCT OPPORTUNITIES*\n\n${result}`, { parse_mode: "Markdown" });
 }
 
-export async function runCompetitorAnalysis(): Promise<void> {
-    await sendTelegram("📊 Analyzing competitors...");
+export async function runCompetitorAnalysis(chatId?: string): Promise<void> {
+    const target = chatId || CHAT_ID;
+    await bot.sendMessage(target, "📊 Analyzing competitors...", { parse_mode: "Markdown" });
     const result = await askClaude(RESEARCH_PROMPTS.competitors);
-    await sendTelegram(`🥊 *COMPETITOR ANALYSIS*\n\n${result}`);
+    await bot.sendMessage(target, `🥊 *COMPETITOR ANALYSIS*\n\n${result}`, { parse_mode: "Markdown" });
 }
 
-export async function runTrendAnalysis(): Promise<void> {
-    await sendTelegram("📈 Checking market trends...");
+export async function runTrendAnalysis(chatId?: string): Promise<void> {
+    const target = chatId || CHAT_ID;
+    await bot.sendMessage(target, "📈 Checking market trends...", { parse_mode: "Markdown" });
     const result = await askClaude(RESEARCH_PROMPTS.trends);
-    await sendTelegram(`🔥 *MARKET TRENDS*\n\n${result}`);
+    await bot.sendMessage(target, `🔥 *MARKET TRENDS*\n\n${result}`, { parse_mode: "Markdown" });
 }
 
-export async function runFullReport(): Promise<void> {
+export async function runFullReport(chatId?: string): Promise<void> {
+    const target = chatId || CHAT_ID;
     const date = new Date().toLocaleDateString("ru-RU");
-    await sendTelegram(`🚀 *WB AGENT REPORT*\n📅 ${date}`);
-    await runProductResearch();
+    await bot.sendMessage(target, `🚀 *WB AGENT REPORT*\n📅 ${date}`, { parse_mode: "Markdown" });
+    await runProductResearch(target);
     await sleep(2000);
-    await runCompetitorAnalysis();
+    await runCompetitorAnalysis(target);
     await sleep(2000);
-    await runTrendAnalysis();
-    await sendTelegram("✅ *Report complete!*");
+    await runTrendAnalysis(target);
+    await bot.sendMessage(target, "✅ *Report complete!*", { parse_mode: "Markdown" });
 }
 
 function setupBotCommands(): void {
@@ -198,27 +207,27 @@ function setupBotCommands(): void {
 
     bot.onText(/\/report/, async (msg) => {
         if (!approvedUsers.has(msg.chat.id.toString())) { await bot.sendMessage(msg.chat.id, "⛔ Access denied."); return; }
-        await runFullReport();
+        await runFullReport(msg.chat.id.toString());
     });
 
     bot.onText(/\/sales/, async (msg) => {
         if (!approvedUsers.has(msg.chat.id.toString())) { await bot.sendMessage(msg.chat.id, "⛔ Access denied."); return; }
-        await sendDailySummary();
+        await sendDailySummary(msg.chat.id.toString());
     });
 
     bot.onText(/\/products/, async (msg) => {
         if (!approvedUsers.has(msg.chat.id.toString())) { await bot.sendMessage(msg.chat.id, "⛔ Access denied."); return; }
-        await runProductResearch();
+        await runProductResearch(msg.chat.id.toString());
     });
 
     bot.onText(/\/trends/, async (msg) => {
         if (!approvedUsers.has(msg.chat.id.toString())) { await bot.sendMessage(msg.chat.id, "⛔ Access denied."); return; }
-        await runTrendAnalysis();
+        await runTrendAnalysis(msg.chat.id.toString());
     });
 
     bot.onText(/\/competitors/, async (msg) => {
         if (!approvedUsers.has(msg.chat.id.toString())) { await bot.sendMessage(msg.chat.id, "⛔ Access denied."); return; }
-        await runCompetitorAnalysis();
+        await runCompetitorAnalysis(msg.chat.id.toString());
     });
 
     bot.onText(/\/status/, async (msg) => {
