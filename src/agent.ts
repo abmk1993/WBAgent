@@ -63,7 +63,8 @@ async function checkNewSales(): Promise<void> {
                 `📍 ${order.warehouseName || "Склад WB"}\n` +
                 `🏙 ${order.regionName || ""}\n` +
                 `⏰ ${new Date().toLocaleTimeString("ru-RU")}`;
-            await sendTelegram(msg);
+            // Only send to ADMIN
+            await bot.sendMessage(ADMIN_ID, msg, { parse_mode: "Markdown" });
         }
     } catch (e) {
         console.error("Error checking sales:", e);
@@ -74,7 +75,7 @@ export async function sendDailySummary(): Promise<void> {
     try {
         const sales = await getTodayStats();
         if (!sales || sales.length === 0) {
-            await sendTelegram("📊 *Daily Summary*\n\nNo sales today yet.");
+            await bot.sendMessage(ADMIN_ID, "📊 *Daily Summary*\n\nNo sales today yet.", { parse_mode: "Markdown" });
             return;
         }
         const totalRevenue = sales.reduce((sum: number, s: any) => sum + (s.priceWithDisc || 0), 0);
@@ -86,7 +87,8 @@ export async function sendDailySummary(): Promise<void> {
             `🛍 Sales today: *${totalSales}*\n` +
             `💰 Revenue: *${Math.round(totalRevenue).toLocaleString()} руб*\n` +
             `📈 Avg price: *${avgPrice} руб*`;
-        await sendTelegram(msg);
+        // Only send to ADMIN
+        await bot.sendMessage(ADMIN_ID, msg, { parse_mode: "Markdown" });
     } catch (e) {
         console.error("Error sending summary:", e);
     }
