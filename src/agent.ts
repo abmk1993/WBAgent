@@ -3,10 +3,26 @@ import TelegramBot from "node-telegram-bot-api";
 import * as cron from "node-cron";
 import * as dotenv from "dotenv";
 
+// Kill any existing polling
+process.once('SIGTERM', () => {
+    bot.stopPolling().catch(() => {}).finally(() => process.exit(0));
+});
+
+process.once('SIGINT', () => {
+    bot.stopPolling().catch(() => {}).finally(() => process.exit(0));
+});
+
 dotenv.config();
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN!, { polling: true });
+const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN!, {
+    polling: {
+        autoStart: true,
+        params: {
+            timeout: 10
+        }
+    }
+});
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID!;
 const WB_TOKEN = process.env.WB_API_TOKEN!;
 const ADMIN_ID = process.env.TELEGRAM_CHAT_ID!;
