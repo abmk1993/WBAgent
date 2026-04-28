@@ -16,12 +16,7 @@ dotenv.config();
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN!, {
-    polling: {
-        autoStart: true,
-        params: {
-            timeout: 10
-        }
-    }
+    polling: false
 });
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID!;
 const WB_TOKEN = process.env.WB_API_TOKEN!;
@@ -264,10 +259,24 @@ function setupBotCommands(): void {
 
 export async function startAgent(): Promise<void> {
     console.log("🤖 WB Agent starting...");
+
+    // Stop any existing polling first
+    try {
+        await bot.stopPolling();
+    } catch (e) {}
+
+    // Wait 3 seconds before starting
+    await sleep(3000);
+
+    // Start polling
+    await bot.startPolling();
+
     setupBotCommands();
+
     cron.schedule("*/5 * * * *", async () => { await checkNewSales(); });
     cron.schedule("0 21 * * *", async () => { await sendDailySummary(); });
     cron.schedule("0 9 * * 1", async () => { await runFullReport(); });
+
     console.log("✅ Agent running!");
     await checkNewSales();
     await sendTelegram("🤖 *WB Agent started!*\n\nType /help to see commands.");
