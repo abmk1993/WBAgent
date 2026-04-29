@@ -3,27 +3,20 @@ import TelegramBot from "node-telegram-bot-api";
 import * as cron from "node-cron";
 import * as dotenv from "dotenv";
 
-// Kill any existing polling
-process.once('SIGTERM', () => {
-    bot.stopPolling().catch(() => {}).finally(() => process.exit(0));
-});
-
-process.once('SIGINT', () => {
-    bot.stopPolling().catch(() => {}).finally(() => process.exit(0));
-});
-
 dotenv.config();
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN!, {
-    polling: false
-});
+const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN!, { polling: true });
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID!;
 const WB_TOKEN = process.env.WB_API_TOKEN!;
 const ADMIN_ID = process.env.TELEGRAM_CHAT_ID!;
 const approvedUsers = new Set<string>([ADMIN_ID]);
 const pendingUsers = new Map<string, string>();
-const seenOrders = new Set<number>();
+const seenOrders = new Set<string>();
+let lastCheckTime = new Date();
+
+process.once('SIGTERM', () => { bot.stopPolling().catch(() => {}).finally(() => process.exit(0)); });
+process.once('SIGINT', () => { bot.stopPolling().catch(() => {}).finally(() => process.exit(0)); });
 
 async function sendTelegram(message: string): Promise<void> {
     const chunks = message.match(/[\s\S]{1,4000}/g) || [message];
@@ -38,14 +31,13 @@ function sleep(ms: number) {
 }
 
 async function getNewOrders(): Promise<any[]> {
-    const dateFrom = new Date();
-    dateFrom.setMinutes(dateFrom.getMinutes() - 10);
-    const dateStr = dateFrom.toISOString().split(".")[0];
+    const dateFrom = lastCheckTime.toISOString().split(".")[0];
+    lastCheckTime = new Date();
     const res = await fetch(
-        `https://statistics-api.wildberries.ru/api/v1/supplier/orders?dateFrom=${dateStr}&flag=1`,
+        `https://statistics-api.wildberries.ru/api/v1/supplier/orders?dateFrom=${dateFrom}&flag=1`,
         { headers: { Authorization: WB_TOKEN } }
     );
-    if (!res.ok) return [];
+    if (!res.ok) { console.log("WB API error:", res.status); return []; }
     const data = await res.json();
     return Array.isArray(data) ? data : [];
 }
@@ -64,14 +56,10 @@ async function getTodayStats(): Promise<any[]> {
 async function checkNewSales(): Promise<void> {
     try {
         const orders = await getNewOrders();
-        console.log("Orders found:", orders.length);
-        console.log("Orders data:", JSON.stringify(orders.slice(0, 2)));
-
+        console.log(`Checking sales: ${orders.length} orders found`);
         for (const order of orders) {
             const orderId = order.gNumber?.toString() || order.srid?.toString();
-            console.log("Order ID:", orderId, "Seen:", seenOrders.has(orderId || ""));
-
-            if (!orderId || seenOrders.has(orderId)) continue;
+            if (!orderId || seenOrders.has(orderId) || order.isCancel) continue;
             seenOrders.add(orderId);
             const msg =
                 `🛍 *NEW SALE!*\n` +
@@ -82,37 +70,23 @@ async function checkNewSales(): Promise<void> {
                 `⏰ ${new Date().toLocaleTimeString("ru-RU")}`;
             await bot.sendMessage(ADMIN_ID, msg, { parse_mode: "Markdown" });
         }
-    } catch (e) {
-        console.error("Error checking sales:", e);
-    }
+    } catch (e) { console.error("Error checking sales:", e); }
 }
 
 export async function sendDailySummary(chatId?: string): Promise<void> {
     const target = chatId || ADMIN_ID;
     try {
+        if (target !== ADMIN_ID) { await bot.sendMessage(target, "⛔ Sales data is private.", { parse_mode: "Markdown" }); return; }
         const sales = await getTodayStats();
-        if (!sales || sales.length === 0) {
-            await bot.sendMessage(target, "📊 *Daily Summary*\n\nNo sales today yet.", { parse_mode: "Markdown" });
-            return;
-        }
+        if (!sales || sales.length === 0) { await bot.sendMessage(ADMIN_ID, "📊 *Daily Summary*\n\nNo sales today yet.", { parse_mode: "Markdown" }); return; }
         const totalRevenue = sales.reduce((sum: number, s: any) => sum + (s.priceWithDisc || 0), 0);
         const totalSales = sales.length;
         const avgPrice = Math.round(totalRevenue / totalSales);
-        const msg =
-            `📊 *DAILY SUMMARY*\n` +
-            `📅 ${new Date().toLocaleDateString("ru-RU")}\n\n` +
-            `🛍 Sales today: *${totalSales}*\n` +
-            `💰 Revenue: *${Math.round(totalRevenue).toLocaleString()} руб*\n` +
-            `📈 Avg price: *${avgPrice} руб*`;
-        // Only admin sees real sales data
-        if (target === ADMIN_ID) {
-            await bot.sendMessage(ADMIN_ID, msg, { parse_mode: "Markdown" });
-        } else {
-            await bot.sendMessage(target, "⛔ Sales data is private.", { parse_mode: "Markdown" });
-        }
-    } catch (e) {
-        console.error("Error sending summary:", e);
-    }
+        await bot.sendMessage(ADMIN_ID,
+            `📊 *DAILY SUMMARY*\n📅 ${new Date().toLocaleDateString("ru-RU")}\n\n🛍 Sales: *${totalSales}*\n💰 Revenue: *${Math.round(totalRevenue).toLocaleString()} руб*\n📈 Avg: *${avgPrice} руб*`,
+            { parse_mode: "Markdown" }
+        );
+    } catch (e) { console.error("Error sending summary:", e); }
 }
 
 async function askClaude(prompt: string): Promise<string> {
@@ -178,7 +152,7 @@ function setupBotCommands(): void {
         { command: "remove", description: "Remove user (admin)" },
     ]);
 
-    bot.onText(/\/start/, async (msg) => {
+    bot.onText(/\/start$/, async (msg) => {
         const userId = msg.chat.id.toString();
         const userName = msg.chat.username || msg.chat.first_name || userId;
         if (approvedUsers.has(userId)) {
@@ -186,11 +160,11 @@ function setupBotCommands(): void {
             return;
         }
         pendingUsers.set(userId, userName);
-        await bot.sendMessage(userId, `👋 Hi *${userName}!*\n\n⏳ Your access request has been sent.\nPlease wait for admin approval.`, { parse_mode: "Markdown" });
+        await bot.sendMessage(userId, `👋 Hi *${userName}!*\n\n⏳ Request sent. Please wait for admin approval.`, { parse_mode: "Markdown" });
         await bot.sendMessage(ADMIN_ID, `🔔 *New access request!*\n\n👤 Name: ${userName}\n🆔 ID: ${userId}\n\nTo approve: /approve ${userId}\nTo reject: /remove ${userId}`, { parse_mode: "Markdown" });
     });
 
-    bot.onText(/\/help/, async (msg) => {
+    bot.onText(/\/help$/, async (msg) => {
         const userId = msg.chat.id.toString();
         if (!approvedUsers.has(userId)) { await bot.sendMessage(userId, "⛔ Access denied. Send /start to request access."); return; }
         await bot.sendMessage(userId, `*WB Agent Commands:*\n\n📊 /report\n🛍 /sales\n📦 /products\n📈 /trends\n🥊 /competitors\n✅ /status`, { parse_mode: "Markdown" });
@@ -214,39 +188,39 @@ function setupBotCommands(): void {
         try { await bot.sendMessage(userId, "⛔ Your access has been revoked."); } catch (e) {}
     });
 
-    bot.onText(/\/users/, async (msg) => {
+    bot.onText(/\/users$/, async (msg) => {
         if (msg.chat.id.toString() !== ADMIN_ID) return;
         const list = [...approvedUsers].join('\n') || 'No users';
         const pending = [...pendingUsers.entries()].map(([id, name]) => `${name} (${id})`).join('\n') || 'None';
         await bot.sendMessage(ADMIN_ID, `*✅ Approved:*\n${list}\n\n*⏳ Pending:*\n${pending}`, { parse_mode: "Markdown" });
     });
 
-    bot.onText(/\/report/, async (msg) => {
+    bot.onText(/\/report$/, async (msg) => {
         if (!approvedUsers.has(msg.chat.id.toString())) { await bot.sendMessage(msg.chat.id, "⛔ Access denied."); return; }
         await runFullReport(msg.chat.id.toString());
     });
 
-    bot.onText(/\/sales/, async (msg) => {
+    bot.onText(/\/sales$/, async (msg) => {
         if (!approvedUsers.has(msg.chat.id.toString())) { await bot.sendMessage(msg.chat.id, "⛔ Access denied."); return; }
         await sendDailySummary(msg.chat.id.toString());
     });
 
-    bot.onText(/\/products/, async (msg) => {
+    bot.onText(/\/products$/, async (msg) => {
         if (!approvedUsers.has(msg.chat.id.toString())) { await bot.sendMessage(msg.chat.id, "⛔ Access denied."); return; }
         await runProductResearch(msg.chat.id.toString());
     });
 
-    bot.onText(/\/trends/, async (msg) => {
+    bot.onText(/\/trends$/, async (msg) => {
         if (!approvedUsers.has(msg.chat.id.toString())) { await bot.sendMessage(msg.chat.id, "⛔ Access denied."); return; }
         await runTrendAnalysis(msg.chat.id.toString());
     });
 
-    bot.onText(/\/competitors/, async (msg) => {
+    bot.onText(/\/competitors$/, async (msg) => {
         if (!approvedUsers.has(msg.chat.id.toString())) { await bot.sendMessage(msg.chat.id, "⛔ Access denied."); return; }
         await runCompetitorAnalysis(msg.chat.id.toString());
     });
 
-    bot.onText(/\/status/, async (msg) => {
+    bot.onText(/\/status$/, async (msg) => {
         if (!approvedUsers.has(msg.chat.id.toString())) { await bot.sendMessage(msg.chat.id, "⛔ Access denied."); return; }
         await bot.sendMessage(msg.chat.id,
             `✅ *WB Agent Status*\n\n🤖 Running\n👥 Users: ${approvedUsers.size}\n⏰ Sales: every 5 min\n📊 Daily: 9 PM\n🔍 Weekly: Monday 9 AM\n🕐 ${new Date().toLocaleString("ru-RU")}`,
@@ -259,25 +233,10 @@ function setupBotCommands(): void {
 
 export async function startAgent(): Promise<void> {
     console.log("🤖 WB Agent starting...");
-
-    // Stop any existing polling first
-    try {
-        await bot.stopPolling();
-    } catch (e) {}
-
-    // Wait 3 seconds before starting
-    await sleep(3000);
-
-    // Start polling
-    await bot.startPolling();
-
     setupBotCommands();
-
     cron.schedule("*/5 * * * *", async () => { await checkNewSales(); });
     cron.schedule("0 21 * * *", async () => { await sendDailySummary(); });
     cron.schedule("0 9 * * 1", async () => { await runFullReport(); });
-
     console.log("✅ Agent running!");
-    await checkNewSales();
     await sendTelegram("🤖 *WB Agent started!*\n\nType /help to see commands.");
 }

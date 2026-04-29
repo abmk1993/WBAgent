@@ -1,8 +1,13 @@
 import { startAgent, runFullReport } from "./agent";
+import express from "express";
 
-// Prevent multiple instances
-const instanceId = Date.now();
-console.log(`Starting instance: ${instanceId}`);
+const app = express();
+app.use(express.json());
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
 
 const args = process.argv.slice(2);
 
@@ -15,12 +20,7 @@ if (args[0] === "--run-now") {
             process.exit(1);
         });
 } else {
-    // Wait random time to avoid conflicts during redeploy
-    const delay = Math.floor(Math.random() * 3000) + 2000;
-    console.log(`Waiting ${delay}ms before starting...`);
-    setTimeout(() => {
-        startAgent()
-            .then(() => console.log("✅ WB Agent is running!"))
-            .catch((err: any) => console.error("❌ Error:", err));
-    }, delay);
+    startAgent()
+        .then(() => console.log("✅ WB Agent is running!"))
+        .catch((err: any) => console.error("❌ Error:", err));
 }
