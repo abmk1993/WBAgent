@@ -6,8 +6,7 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN!, { polling: true });
-const CHAT_ID = process.env.TELEGRAM_CHAT_ID!;
+export const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN!, { polling: false });const CHAT_ID = process.env.TELEGRAM_CHAT_ID!;
 const WB_TOKEN = process.env.WB_API_TOKEN!;
 const ADMIN_ID = process.env.TELEGRAM_CHAT_ID!;
 const approvedUsers = new Set<string>([ADMIN_ID]);
